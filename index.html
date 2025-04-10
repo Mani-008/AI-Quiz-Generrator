@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Quiz Generator</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f2f6fc;
+      margin: 0;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    form label {
+      display: block;
+      margin: 1rem 0 0.3rem;
+    }
+
+    form input, form select {
+      width: 100%;
+      padding: 0.7rem;
+      font-size: 1rem;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      margin-top: 1.5rem;
+      cursor: pointer;
+    }
+
+    #quizSection {
+      margin-top: 2rem;
+    }
+
+    .quiz-question {
+      margin-bottom: 2rem;
+    }
+
+    .quiz-question h3 {
+      margin-bottom: 0.5rem;
+    }
+
+    ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    li {
+      margin: 0.5rem 0;
+    }
+
+    #result {
+      font-size: 1.3rem;
+      font-weight: bold;
+      margin-top: 2rem;
+      text-align: center;
+      color: #2e7d32;
+    }
+
+    #loading {
+      display: none;
+      text-align: center;
+      font-size: 1.2rem;
+      color: #555;
+    }
+
+    #loading::after {
+      content: "⏳ Generating your quiz...";
+      animation: dots 1.5s infinite;
+    }
+
+    @keyframes dots {
+      0% { content: "⏳ Generating your quiz"; }
+      33% { content: "⏳ Generating your quiz."; }
+      66% { content: "⏳ Generating your quiz.."; }
+      100% { content: "⏳ Generating your quiz..."; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>AI Quiz Generator</h2>
+
+    <form id="infoForm">
+      <label>Your Name:</label>
+      <input type="text" id="name" required />
+
+      <label>Topic:</label>
+      <input type="text" id="topic" placeholder="e.g., JavaScript" required />
+
+      <label>Number of Questions:</label>
+      <input type="number" id="count" min="1" max="20" value="10" required />
+
+      <label>Question Type:</label>
+      <select id="type">
+        <option value="multiple">Multiple Choice</option>
+      </select>
+
+      <button type="submit">Generate Quiz</button>
+    </form>
+
+    <div id="loading"></div>
+    <div id="quizSection"></div>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById("infoForm");
+    const quizSection = document.getElementById("quizSection");
+    const resultDiv = document.getElementById("result");
+    const loading = document.getElementById("loading");
+
+    // ✅ Hide this — your real API URL
+    const QUIZ_API_ENDPOINT = "https://rw0p7wykjl.execute-api.us-east-1.amazonaws.com/prod/quiz";
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      quizSection.innerHTML = "";
+      resultDiv.innerHTML = "";
+      loading.style.display = "block";
+
+      const name = document.getElementById("name").value;
+      const topic = document.getElementById("topic").value;
+      const type = document.getElementById("type").value;
+      const count = document.getElementById("count").value;
+
+      // 👇 Show loading for 3 seconds
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      try {
+        const res = await fetch(QUIZ_API_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic,
+            difficulty: "medium",
+            questionType: type,
+            numQuestions: count
+          })
+        });
+
+        const json = await res.json();
+        let quiz;
+        try {
+          quiz = typeof json.body === "string" ? JSON.parse(json.body) : json.body;
+          if (typeof quiz === "string") quiz = JSON.parse(quiz);
+        } catch (err) {
+          loading.innerText = "❌ Error parsing quiz data.";
+          return;
+        }
+
+        loading.style.display = "none";
+
+        if (!quiz.quiz || !Array.isArray(quiz.quiz)) {
+          quizSection.innerHTML = `<pre>${JSON.stringify(quiz, null, 2)}</pre>`;
+          return;
+        }
+
+        displayQuiz(quiz.quiz);
+      } catch (err) {
+        loading.innerText = "❌ Failed to load quiz.";
+        console.error(err);
+      }
+    });
+
+    function displayQuiz(quizData) {
+      quizSection.innerHTML = quizData.map((q, i) => `
+        <div class="quiz-question">
+          <h3>${i + 1}. ${q.text}</h3>
+          <ul>
+            ${q.options.map(opt => `
+              <li>
+                <label>
+                  <input type="radio" name="q${i}" value="${opt.id}" />
+                  ${opt.text}
+                </label>
+              </li>
+            `).join("")}
+          </ul>
+        </div>
+      `).join("");
+
+      const submitBtn = document.createElement("button");
+      submitBtn.textContent = "Submit Quiz";
+      submitBtn.onclick = () => calculateResult(quizData);
+      quizSection.appendChild(submitBtn);
+    }
+
+    function calculateResult(quizData) {
+      let score = 0;
+
+      quizData.forEach((q, i) => {
+        const selected = document.querySelector(`input[name="q${i}"]:checked`);
+        const correctOption = q.options.find(opt => opt.correct === true || opt.correct === "true" || opt.correct === q.correct);
+
+        if (selected && selected.value === correctOption?.id) {
+          score++;
+        }
+      });
+
+      resultDiv.innerHTML = `
+        <div style="padding: 1rem; background: #e6ffe6; border-radius: 8px; border: 1px solid #a3d9a5;">
+          🎉 You scored <strong>${score}</strong> out of <strong>${quizData.length}</strong>!
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
